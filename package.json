@@ -1,0 +1,23 @@
+{
+  "name": "ai-editsummary-watcher",
+  "version": "0.1.0",
+  "description": "Watches Wikipedia recent changes and posts likely AI-generated edit summaries to Discord",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "type": "module",
+  "dependencies": {
+    "discord-interactions": "^4.4.0",
+    "onnxruntime-node": "^1.31.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.18"
+  }
+}
