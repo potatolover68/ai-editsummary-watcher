@@ -12,6 +12,7 @@ Each Discord post includes:
 - when the edit was made;
 - the summary;
 - the performer, with their edit count, registration date, and links to their user page, talk page and contribs (as embed links and as link buttons);
+- the edit's change tags, with AI-related ones in bold (`possible formatting issues`, `editcheck-llm-paste-shown`, `editcheck-llm-paste`, `editcheck-paste-shown`, `possible AI-generated citations`);
 - a footer with the bot version, uptime and `$HOSTNAME`, if set.
 
 ## Skipped edits
@@ -23,6 +24,12 @@ Each Discord post includes:
   it carries one of the tool's tags. The list is re-fetched every 6 hours.
 - Edits on Wikipedia Adventure pages (`…/TWA/…`). The tutorial writes those
   summaries itself.
+- Summaries the anti-AI rules of
+  [`ai-editsummary-heuristics`](../ai-editsummary-heuristics) call obviously
+  human, e.g. very short ("-enhancement", "]["), edit-summary shorthand, or
+  software-generated reverts. This catches short summaries the model
+  over-scores. The rules are vendored in `src/heuristics/`; to update them,
+  re-copy from that repo. Set `HEURISTICS=0` to turn this off.
 - Bot-flagged edits, empty summaries, and summaries or users that have been
   hidden (revision-deleted).
 
@@ -48,6 +55,7 @@ npm start
 | `BACKFILL_MINUTES` | also process this many minutes before startup (default `0`) |
 | `MODEL_PATH` | default `model.onnx` |
 | `DRY_RUN=1` | print messages instead of posting them |
+| `HEURISTICS=0` | don't skip summaries the heuristics call obviously human |
 
 `npm start` loads `.env` if it exists. Plain environment variables work too.
 `npm run typecheck` runs `tsc`.

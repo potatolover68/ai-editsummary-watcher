@@ -23,9 +23,13 @@ export interface Message {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Escape Discord Markdown in user-supplied text. */
+/**
+ * Escape Discord Markdown in user-supplied text. A lone "~" is left alone:
+ * "\~" at the start of link text (temporary accounts are "~2026-…") stops
+ * Discord from parsing the whole field's links. Only "~~" is strikethrough.
+ */
 export function escapeMarkdown(s: string) {
-  return s.replace(/([\\*_~`|>\[\]()])/g, "\\$1");
+  return s.replace(/([\\*_`|>\[\]()])/g, "\\$1").replace(/~~/g, "~\u200b~");
 }
 
 export class Webhook {

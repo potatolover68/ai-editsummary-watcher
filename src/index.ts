@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { AutoEdits } from "./autoedits.ts";
+import { analyze } from "./heuristics/index.ts";
 import { escapeMarkdown, Webhook, type Message } from "./discord.ts";
 import { Model, normalize } from "./model.ts";
 import { encodeTitle, Wiki } from "./wiki.ts";
@@ -34,6 +35,8 @@ const config = {
   backfillMinutes: Number(env("BACKFILL_MINUTES", "0")),
   modelPath: join(ROOT, env("MODEL_PATH", "model.onnx")),
   dryRun: /^(1|true|yes)$/i.test(process.env.DRY_RUN ?? ""),
+  /** Skip summaries the heuristics call obviously human (HEURISTICS=0 to disable). */
+  useHeuristics: !/^(0|false|no)$/i.test(process.env.HEURISTICS ?? ""),
 };
 
 /** Pages whose edit summaries are written by a tool rather than the editor. */
@@ -85,6 +88,25 @@ function codeBlock(s: string) {
   return "```\n" + s.replace(/`/g, "`​") + "\n```";
 }
 
+/** Change tags that point at AI-generated or pasted content; shown in bold. */
+const AI_TAGS = new Set(
+  [
+    "possible formatting issues",
+    "editcheck-llm-paste-shown",
+    "editcheck-llm-paste",
+    "editcheck-paste-shown",
+    "possible AI-generated citations",
+  ].map((t) => t.toLowerCase()),
+);
+
+function formatTags(tags: string[]) {
+  if (!tags.length) return "none";
+  return tags
+    .map((t) => (AI_TAGS.has(t.toLowerCase()) ? `**${escapeMarkdown(t)}**` : escapeMarkdown(t)))
+    .join(", ")
+    .slice(0, 1024);
+}
+
 function buildMessage(wiki: Wiki, rc: RecentChange, score: number, user: UserInfo | undefined): Message {
   const name = rc.user ?? "(hidden)";
   const diff =
@@ -129,6 +151,7 @@ function buildMessage(wiki: Wiki, rc: RecentChange, score: number, user: UserInf
           },
           { name: "Edit count", value: editCount, inline: true },
           { name: "Registered", value: registered, inline: true },
+          { name: "Tags", value: formatTags(rc.tags ?? []) },
         ],
         footer: { text: footer.join(" · ") },
       },
@@ -172,7 +195,7 @@ async function main() {
 
   const webhook = new Webhook(config.webhook);
   const seen = new Map<number, number>(); // rcid -> when seen
-  const stats = { edits: 0, excluded: 0, scored: 0, flagged: 0 };
+  const stats = { edits: 0, excluded: 0, obviouslyHuman: 0, scored: 0, flagged: 0 };
   let cursor = Date.now() - config.backfillMinutes * 60e3;
   let running = true;
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => (running = false));
@@ -208,6 +231,11 @@ async function main() {
         if (rc.commenthidden || rc.userhidden || !rc.comment || !normalize(rc.comment)) continue;
         if (autoEdits.match(rc.comment, rc.tags) || TOOL_PAGES.test(rc.title)) {
           stats.excluded++;
+          continue;
+        }
+        // Anti-AI heuristics: skip summaries that are obviously human, tool or software written.
+        if (config.useHeuristics && analyze(rc.comment).verdict === "human") {
+          stats.obviouslyHuman++;
           continue;
         }
         candidates.push(rc);

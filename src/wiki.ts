@@ -114,5 +114,5 @@ export function encodeTitle(title: string) {
   return encodeURIComponent(title.replace(/ /g, "_"))
     .replace(/%3A/gi, ":")
     .replace(/%2F/gi, "/")
-    .replace(/[()'*!]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+    .replace(/[()'*!~]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase());
 }

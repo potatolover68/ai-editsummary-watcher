@@ -1,6 +1,6 @@
 {
   "name": "ai-editsummary-watcher",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Watches Wikipedia recent changes and posts likely AI-generated edit summaries to Discord",
   "main": "src/index.ts",
   "scripts": {
