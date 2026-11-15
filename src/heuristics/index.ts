@@ -1,4 +1,4 @@
-// Vendored from ai-editsummary-heuristics@be30fa7 (src/index.ts). Edit there and re-copy.
+// Vendored from ai-editsummary-heuristics@6dbcf67 (src/index.ts). Edit there and re-copy.
 import {
   ANTI_SIGNS,
   AUTOCOMMENT,
@@ -9,8 +9,8 @@ import {
   type Tier,
 } from "./rules.ts";
 
-export { ANTI_SIGNS, SIGNS, countPolicyNods } from "./rules.ts";
-export type { AntiRule, AntiTier, Rule, Tier } from "./rules.ts";
+export { ANTI_SIGNS, COLOR_TIER, SIGNS, countPolicyNods } from "./rules.ts";
+export type { AntiRule, AntiTier, Color, Rule, Tier } from "./rules.ts";
 
 /**
  * - "ai":        obviously AI; skip the model
@@ -78,12 +78,16 @@ export function analyze(summary: string, options: Options = {}): Result {
   let giveaway = false;
   let definitive = false;
 
+  // Overlapping rules share a group; only the strongest match per group counts.
+  const groupBest = new Map<string, number>();
   for (const rule of SIGNS) {
     if (!run(rule, body)) continue;
     matches.push({ id: rule.id, tier: rule.tier, kind: "sign", description: rule.description });
     if (rule.tier === "giveaway") giveaway = true;
+    else if (rule.group) groupBest.set(rule.group, Math.max(groupBest.get(rule.group) ?? 0, SIGN_WEIGHTS[rule.tier]));
     else pos += SIGN_WEIGHTS[rule.tier];
   }
+  for (const w of groupBest.values()) pos += w;
   for (const rule of ANTI_SIGNS) {
     if (!runAnti(rule, raw, body)) continue;
     matches.push({ id: rule.id, tier: rule.tier, kind: "anti-sign", description: rule.description });

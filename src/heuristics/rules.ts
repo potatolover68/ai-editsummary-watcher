@@ -1,4 +1,4 @@
-// Vendored from ai-editsummary-heuristics@be30fa7 (src/rules.ts). Edit there and re-copy.
+// Vendored from ai-editsummary-heuristics@6dbcf67 (src/rules.ts). Edit there and re-copy.
 /**
  * Heuristic rules for AI-generated Wikipedia edit summaries.
  *
@@ -18,10 +18,26 @@
 
 export type Tier = "giveaway" | "strong" | "moderate" | "weak";
 
+/** Colour of a dataset tag (the Tags sheet legend). */
+export type Color = "Red" | "Orange" | "Yellow" | "Green" | "Blue";
+
+/** Tier each colour maps to before any data-based cap. */
+export const COLOR_TIER: Record<Color, Tier> = {
+  Red: "giveaway",
+  Orange: "strong",
+  Yellow: "moderate",
+  Green: "weak",
+  Blue: "weak",
+};
+
 export interface Rule {
   id: string;
   /** Dataset tag(s) this rule approximates, if any. */
   tag?: string;
+  /** Colour of that tag in the Tags sheet. */
+  color?: Color;
+  /** Rules in the same group overlap; only the strongest match in a group counts. */
+  group?: string;
   tier: Tier;
   description: string;
   /** A regex, or a function returning true on match. */
@@ -63,27 +79,31 @@ export const SIGNS: Rule[] = [
   {
     id: "chatbot-preamble",
     tag: "User communication",
-    tier: "giveaway",
+    color: "Green",
+    tier: "giveaway", // narrow chatbot-reply pattern; 0 human hits
     description: 'Chatbot reply preamble ("Sure! Here\'s an edit summary…", "Certainly.")',
     test: /^\W*(?:sure|certainly|absolutely|of course)\b[!,.]|\bhere(?:'|’)?s (?:a |an |the |my |your )?(?:\w+ ){0,3}(?:edit summary|summary|breakdown|version|revised|rewrite)\b|\bclaude responded\b|\bask chatgpt\b|\byou (?:can|could|may) use\b/i,
   },
   {
     id: "summary-label",
     tag: "Saying it's a summary",
-    tier: "giveaway",
+    color: "Yellow",
+    tier: "giveaway", // narrow pattern; 0 human hits
     description: 'Summary labels itself ("Edit summary:", "Concise edit summary:")',
     test: /^\W*(?:\*\*)?\s*(?:concise |suggested |short |brief |final )?edit summary\s*(?:\*\*)?\s*[:：]/i,
   },
   {
     id: "markdown-bold",
     tag: "Markdown",
-    tier: "giveaway",
+    color: "Orange",
+    tier: "giveaway", // narrow pattern; 1 human hit in 44.5k
     description: "Markdown bold/headers or code fences",
     test: /\*\*[^*\n]{2,80}\*\*|```|^#{1,3} \w/,
   },
   {
     id: "provided-text",
     tag: "Provided text",
+    color: "Red",
     tier: "giveaway",
     description: 'Refers to text given to a chatbot ("the provided paragraph", "the latest screenshot")',
     test: /\bthe provided (?:text|paragraph|content|passage|draft|list|section|sentence|article|information)\b|\b(?:latest|attached|uploaded) (?:screenshots?|image)\b/i,
@@ -91,21 +111,24 @@ export const SIGNS: Rule[] = [
   {
     id: "second-person-change",
     tag: "User communication",
-    tier: "moderate", // humans say "you removed…" in reverts too
+    color: "Green",
+    tier: "weak",
     description: 'Describes the user\'s edit in second person ("you replaced a comma…")',
     test: /\byou (?:replaced|added|removed|changed|made|corrected|rephrased|rewrote|updated|fixed|expanded)\b/i,
   },
   {
     id: "ai-disclosure",
     tag: "It says so",
-    tier: "giveaway",
+    color: "Yellow",
+    tier: "giveaway", // explicit AI disclosure; 0 human hits
     description: 'Discloses AI use ("AI-assisted", "generated with ChatGPT")',
     test: /\b(?:ai|llm)[- ]assist(?:ed|ance)\b|\b(?:generated|drafted|written|created) (?:with|by|using) (?:the help of )?(?:an? )?(?:ai|llm|chatgpt|gpt|claude|gemini|copilot)\b/i,
   },
   {
     id: "unicode-letter-markup",
     tag: "Unicode letter markup",
-    tier: "giveaway",
+    color: "Yellow",
+    tier: "giveaway", // narrow artefact; 0 human hits
     description: "Zero-width characters sprinkled inside words (LLM watermark-like artefact)",
     // Needs >= 3 occurrences of at least two different invisible characters;
     // a single kind (e.g. ZWSP between pinyin syllables) is legitimate.
@@ -118,13 +141,15 @@ export const SIGNS: Rule[] = [
   {
     id: "while-preserving",
     tag: "Preserved X / Retained X / Maintained X",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: '"…while preserving/retaining/maintaining X"',
     test: /\bwhile (?:preserving|retaining|maintaining|keeping)\b/i,
   },
   {
     id: "without-altering",
     tag: "Without doing X",
+    color: "Orange",
     tier: "strong",
     description: '"without altering the meaning/content", "without overstating"',
     test: /\bwithout (?:altering|changing|modifying|affecting|overstating|embellishment|removing (?:any )?(?:sourced|content|information))\b/i,
@@ -132,27 +157,31 @@ export const SIGNS: Rule[] = [
   {
     id: "afc-reviewer-feedback",
     tag: "AfC references",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Addresses AfC reviewer feedback ("Addressed reviewer feedback by…")',
     test: /\b(?:address(?:ed|es|ing)?|per|following|in response to|implement(?:ed|ing)?|incorporat(?:ed|ing))\b (?:the |all |prior |previous |recent )?(?:afc |draft )?(?:reviewer|review)(?:'s|s'|s)? (?:feedback|comments|concerns|notes)\b/i,
   },
   {
     id: "wikipedia-guidelines",
     tag: "Mentioning Wikipedia",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Spells out that edits follow "Wikipedia\'s guidelines/standards"',
     test: /\bwikipedia(?:'|’)?s?(?: \w+)? (?:guidelines?|policies|policy|standards?|style|manual of style|requirements|conventions|norms|neutrality|content)\b|\b(?:for|on) wikipedia\b(?! ?(?:talk|:))/i,
   },
   {
     id: "compliance",
     tag: "Compliance with / Adhering to X / Align with",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: '"to comply with / adhere to / align with / in line with" guidelines',
     test: /\b(?:in )?complian(?:ce|t) with\b|\bto comply with\b|\badher(?:e|es|ed|ing|ence) to\b|\b(?:better |to |more closely )?align(?:s|ed|ing)? (?:it |the \w+ |them )?with\b|\bin (?:line|keeping) with (?:wikipedia|wp|the|encyclopedic|mos)/i,
   },
   {
     id: "ensure",
     tag: "Ensured X",
+    color: "Yellow",
     tier: "moderate",
     description: '"ensure/ensuring" in a summary',
     test: /\bensur(?:e|ed|es|ing)\b/i,
@@ -160,13 +189,16 @@ export const SIGNS: Rule[] = [
   {
     id: "encyclopedic-tone",
     tag: "Encyclopedic tone",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: '"encyclopedic tone/style/language"',
     test: /\b(?:more |a |an |neutral,? )?encyclop(?:a)?edic (?:tone|style|language|register|standards?|voice|presentation|format|alternatives?)\b/i,
   },
   {
     id: "quality-for",
+    group: "quality",
     tag: "Clarity / Readability / Flow / Conciseness",
+    color: "Orange",
     tier: "strong",
     description: '"for clarity, flow and readability"; "improved clarity/flow"',
     test: new RegExp(
@@ -176,7 +208,9 @@ export const SIGNS: Rule[] = [
   },
   {
     id: "improved-quality",
+    group: "quality",
     tag: "Enhanced X / Refined X / Streamlined X",
+    color: "Yellow",
     tier: "moderate",
     description: '"Improved/enhanced/refined/streamlined + quality noun"',
     test: new RegExp(
@@ -185,36 +219,37 @@ export const SIGNS: Rule[] = [
     ),
   },
   {
-    id: "procedural-verbs",
-    tag: "Refined/Streamlined/Smoothed/Formalized/Consolidated X",
-    tier: "weak",
-    description: "AI-favoured procedural verbs",
-    test: /\b(?:refined|streamlined|smoothed|formali[sz]ed|consolidated|strengthened|harmoni[sz]ed|refactored|deduplicated|pruned|softened|modernized|tidied)\b/i,
-  },
-  {
     id: "neutralizing",
+    group: "promo",
     tag: "Neutralizing / Promotional tone",
-    tier: "moderate",
+    color: "Orange",
+    tier: "strong",
     description: '"neutral tone", "promotional language", "neutrality"',
     test: /\bneutral(?:,|ity)? (?:and |, )?(?:\w+ )?(?:tone|language|wording|phrasing|terms|description|alternatives?)\b|\b(?:promotional|peacock|subjective|evaluative|emotive|editoriali[sz]ing) (?:tone|language|wording|phrasing|terms|claims|statements|adjectives)\b|\bneutrality\b/i,
   },
   {
     id: "policy-stack",
+    group: "policy",
     tag: "Itemized policy / General policy nods",
+    color: "Orange",
     tier: "strong",
     description: "Three or more distinct policy/quality nouns stacked in one summary",
     test: (s) => countPolicyNods(s) >= 3,
   },
   {
     id: "policy-pair",
+    group: "policy",
     tag: "Itemized policy / General policy nods",
-    tier: "weak",
+    color: "Orange",
+    tier: "moderate", // only two nods: one step below the tag's colour
     description: "Two distinct policy/quality nouns",
     test: (s) => countPolicyNods(s) === 2,
   },
   {
     id: "sourced-x",
+    group: "policy",
     tag: "Sourced X / Reliable sources",
+    color: "Yellow",
     tier: "moderate",
     description: '"added sourced content", "with reliable sources", "improved sourcing"',
     test: /\b(?:added|adds?|adding|with|include[sd]?|including|expanded?) (?:new |additional |properly |fully |well[- ]|more )?(?:sourced|cited|referenced|verified|verifiable) (?:information|content|details|section|material|text|prose|paragraph|infobox|data|facts|claims|statements|coverage|biography|history)\b|\b(?:improv|strengthen|enhanc)\w* (?:the )?(?:sourcing|citations|references|attribution)\b/i,
@@ -222,20 +257,23 @@ export const SIGNS: Rule[] = [
   {
     id: "inline-citations",
     tag: "Inline citations / Internal/wikilinks",
-    tier: "moderate",
+    color: "Orange",
+    tier: "strong",
     description: '"inline citations", "internal links"',
     test: /\binline (?:citations?|references|refs)\b|\binternal (?:wiki)?links?\b|\binternal\/external links\b/i,
   },
   {
     id: "no-content-changes",
     tag: "No content changes",
-    tier: "moderate",
+    color: "Green",
+    tier: "weak",
     description: '"no content changes", "no new content added"',
     test: /\bno (?:new )?(?:content|substantive|factual|text|substantial) (?:changes?|added|altered|removed|modified)\b|\bno content (?:was )?(?:changed|removed|altered)\b/i,
   },
   {
     id: "detached-description",
     tag: "Detached edit description",
+    color: "Orange",
     tier: "strong",
     description: 'Talks about the edit as an object ("This edit provides…", "The changes focused on…")',
     test: /^\W*(?:the|this|these) (?:edit|edits|revision|revisions|changes?|update|updates|information|paragraph|addition|content|modification|contribution)s? (?:provides?|adds?|aims?|aimed|focus(?:es|ed)?|improves?|enhances?|ensures?|offers?|involves?|involved|include[sd]?|clarif(?:y|ies|ied)|helps?|contributes?|reflects?|highlights?|introduces?|replaces?|removes?|corrects?|presents?|expands?|pertains?|makes?|was|were|is|are)\b/i,
@@ -243,6 +281,7 @@ export const SIGNS: Rule[] = [
   {
     id: "first-person-narration",
     tag: "First person",
+    color: "Yellow",
     tier: "moderate",
     description: 'First-person narration of the edit ("I revised the content to…")',
     test: /^\W*(?:i|we) (?:have |also |then |carefully |manually )?(?:revised|rewrote|rewritten|rephrased|condensed|restructured|reorganized|reorganised|enhanced|refined|streamlined|improved|ensured|made|focused|incorporated|updated|edited|adjusted|modified|corrected|expanded|added|removed|changed|replaced|included|provided|integrated|polished|simplified|clarified)\b/i,
@@ -250,69 +289,79 @@ export const SIGNS: Rule[] = [
   {
     id: "mentions-readers",
     tag: 'Mentioning "readers"',
-    tier: "moderate",
+    color: "Orange",
+    tier: "strong",
     description: 'Mentions "readers"',
     test: /\breaders?\b/i,
   },
   {
     id: "arrow",
     tag: "Arrow symbol",
-    tier: "moderate",
+    color: "Orange",
+    tier: "weak", // capped: nearly as common in human summaries (LR 1.5)
     description: "Arrow symbol (→ ➝ ⟶)",
     test: /[→➝⟶➔⇒➜]/,
   },
   {
     id: "bullets",
     tag: "Bullet point artifacts",
-    tier: "strong",
+    color: "Orange",
+    tier: "weak", // capped: LR 3.7
     description: "Bullet characters or flattened list markers",
     test: /[•▪◦●]|(?:^|\s)[*-] [A-Z][^*\n]{5,}\s[*-] [A-Z]/,
   },
   {
     id: "numbered-list",
     tag: "Numbered list",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Flattened numbered list ("1. Fixed typos: … 2. Added …")',
     test: /(?:^|\s)1[.)] [A-Z][^]{5,}?\s2[.)] [A-Z]/,
   },
   {
     id: "emoji",
     tag: "Emoji",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: "Emoji",
     test: /\p{Extended_Pictographic}|[\u{1F1E6}-\u{1F1FF}]{2}/u,
   },
   {
     id: "capital-headers",
-    tag: 'Capital "headers" / Major/comprehensive X:',
-    tier: "moderate",
-    description: 'Title-case pseudo-headers ("Neutral tone – Removed…", "Major expansion: …")',
-    test: /^\W*(?:major|comprehensive|significant|substantial|extensive|complete|full|general|minor) (?:\w+ ){0,3}?(?:expansion|rewrite|update|overhaul|revision|cleanup|clean-up|restructur\w*|improvements?|edits?|changes|copyedit|corrections|fixes)\b[^:.;]{0,40}:|(?:^|[.;]\s+)(?:[A-Z][a-z]+(?: (?:[A-Z][a-z]+|&|and|of)){0,3})\s?(?:–|—|:)\s[A-Z][a-z]+ed\b/,
+    tag: 'Capital "headers"',
+    color: "Orange",
+    tier: "moderate", // capped: LR 8
+    description: 'Title-case pseudo-headers ("Neutral tone – Removed…"); "Major expansion:" is major-comprehensive-header',
+    test: /(?:^|[.;]\s+)(?:[A-Z][a-z]+(?: (?:[A-Z][a-z]+|&|and|of)){0,3})\s?(?:–|—|:)\s[A-Z][a-z]+ed\b/,
   },
   {
     id: "terse-itemization",
     tag: "Terse parenthetical itemization",
-    tier: "weak",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Parenthetical lists ("added sources (NYT, BBC, Guardian)")',
     test: /\((?:[^(),;]{2,40}[,;] ){2,}[^()]{2,60}\)/,
   },
   {
     id: "curly-quotes",
     tag: "Curly quotes",
-    tier: "weak",
+    color: "Orange",
+    tier: "moderate", // capped: fires on 0.25% of human summaries
     description: "Curly quotes/apostrophes",
     test: /[“”‘’]/,
   },
   {
     id: "quoted-whole",
     tag: "Quotes around response",
-    tier: "moderate",
+    color: "Green",
+    tier: "weak",
     description: "Whole summary wrapped in quotes (copy-pasted)",
     test: /^\s*["“][^"“”]{30,}["”]\s*$/,
   },
   {
     id: "truncated",
     tag: "Trailing off",
+    color: "Yellow",
     tier: "moderate",
     description: "Hits the 500-character limit mid-sentence",
     test: (s) => s.length >= 490 && !/[.!?)\]]\s*$/.test(s),
@@ -320,60 +369,155 @@ export const SIGNS: Rule[] = [
   {
     id: "pedantic-hyphens",
     tag: "Pedantic compound hyphens",
-    tier: "weak",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Pedantic compound hyphens ("source-backed", "year-specific", "fact-based")',
     test: /\b(?:source|fact|evidence|year|era|date|citation|reference|reader|policy|media|sentence|section|article|text|content|research|data|context|period|role|time|topic|subject|career)-(?:backed|based|specific|focused|driven|aligned|level|appropriate|heavy|oriented|supported|compliant|neutral|friendly)\b/i,
   },
   {
     id: "x-or-y",
     tag: "X or Y",
-    tier: "weak",
+    color: "Yellow",
+    tier: "moderate",
     description: '"outdated or mismatched", "subjective or promotional"',
     test: /\b(?:outdated|unsourced|promotional|redundant|subjective|vague|weak|mismatched|informal|speculative|unverified|unverifiable|duplicate|broken|dramatic|unreliable|contentious|editorial|evaluative|inflated|loaded) or (?:potentially |overly |otherwise )?(?:outdated|unsourced|promotional|redundant|subjective|vague|weak|mismatched|informal|speculative|unverified|unverifiable|duplicate|broken|dramatic|unreliable|contentious|editorial|evaluative|inflated|loaded|emotive|non-neutral|incorrect|irrelevant|misleading|exaggerated|inaccurate|unclear)\b/i,
   },
   {
     id: "rather-than",
     tag: "X rather than Y",
-    tier: "weak",
+    color: "Orange",
+    tier: "moderate", // capped: LR 7.9
     description: '"…rather than…"',
     test: /\brather than\b/i,
   },
   {
     id: "suggestion-style",
     tag: "Suggestion-style",
-    tier: "strong",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Critique phrased as advice (\'"Influential" is subjective and lacks…\')',
     test: /^\W*["“][^"”]{2,60}["”] (?:is|are|was|sounds|feels|comes across|can|could|may|might|implies|suggests)\b/i,
   },
   {
-    id: "ai-vocab",
-    tag: "AIWORDS / AIVOCAB",
-    tier: "moderate",
-    description: "Classic AI vocabulary (delve, pivotal, showcase, foster, tapestry…)",
-    test: /\b(?:delv(?:e|es|ed|ing)|pivotal|showcas(?:e|es|ed|ing)|foster(?:s|ed|ing)?|tapestry|intricate|underscor(?:e|es|ed|ing)|testament|vibrant|meticulous(?:ly)?|seamless(?:ly)?|valuable insights?|insights? into|rich (?:history|heritage|tapestry)|nuanced|crucial|holistic|landscape of|ever-evolving|multifaceted|enriching|robust (?:citations?|sourcing|references))\b/i,
-  },
-  {
     id: "comprehensive",
     tag: "Comprehensive / Overview / Key X / Relevant X",
-    tier: "weak",
+    color: "Yellow",
+    tier: "moderate",
     description: '"comprehensive", "overview", "key details", "relevant information"',
     test: /\bcomprehensive\b|\boverview\b|\bkey (?:details|information|facts|points|aspects|figures|milestones|events|achievements|changes|improvements|contributions|updates)\b|\brelevant (?:information|details|context|content|sources|citations|links)\b/i,
   },
   {
     id: "additionally",
     tag: "Additionally, / Furthermore",
-    tier: "weak",
+    color: "Yellow",
+    tier: "moderate",
     description: 'Sentence-initial "Additionally," / "Furthermore,"',
     test: /(?:^|[.;]\s+)(?:additionally|furthermore|moreover|overall),/i,
   },
   {
     id: "avoided-x",
-    tag: "Avoided X / Aimed to X / Focused on X",
+    tag: "Avoided X / Aimed to X",
+    color: "Yellow",
     tier: "moderate",
-    description: '"avoided…", "aimed to…", "focused on…"',
-    test: /\b(?:avoid(?:ed|ing)|aim(?:ed|ing|s)? to|focus(?:ed|ing)? on)\b/i,
+    description: '"avoided…", "aimed to…"',
+    test: /\b(?:avoid(?:ed|ing)|aim(?:ed|ing|s)? to)\b/i,
   },
+
+  // --- one rule per tag, tier from the tag's colour ----------------------
+  // A rule is demoted below its colour when it also fires on human summaries:
+  // giveaway needs zero human hits in 44.5k; strong needs a likelihood ratio
+  // (AI rate / human rate) of at least 20 and a human rate of at most 0.1%;
+  // moderate needs a likelihood ratio of at least 5 and a human rate of at most 0.5%.
+  // Overlapping rules share a `group`, and only the strongest match per group counts.
+
+  // Red
+  grouped("promo", tagRule("promotional-tone", "Promotional tone", "Red", "strong", /\bpromotional (?:tone|language|wording|phrasing|terms|content|claims|statements|adjectives|descriptors)\b/i, "capped: 6 human hits")),
+  grouped("policy", tagRule("independent-sources", "Independent sources", "Red", "strong", /\bindependent,? (?:\w+ ){0,2}(?:sources?|references?|coverage|citations?)\b/i, "capped: 6 human hits")),
+  grouped("policy", tagRule("third-party-sources", "Third party sources", "Red", "strong", /\bthird[- ]party (?:\w+ )?(?:sources?|references?|coverage|citations?)\b/i, "capped: 1 human hit")),
+  tagRule("major-comprehensive-header", "Major/comprehensive X:", "Red", "strong", /^\W*(?:major|comprehensive|significant|substantial|extensive|complete|full|general) (?:\w+ ){0,3}?(?:expansion|rewrite|update|overhaul|revision|cleanup|clean-up|restructur\w*|improvements?|edits?|changes|copyedit|corrections|fixes)\b[^:.;]{0,40}:/i, 'capped: AWB "General fixes:"'),
+  tagRule("cleaned-x", "Cleaned X", "Red", "giveaway", /\bcleaned (?!up\b)(?:\w+ )?(?:tone|wording|language|phrasing|prose|formatting|citations?|references?|refs|text|content|structure|grammar|section|lead|infobox)\b/i),
+  tagRule("diverse", "Diverse", "Red", "strong", /\bdivers(?:e|ity)\b/i, "capped: 2 human hits"),
+  tagRule("upgraded-x", "Upgraded X", "Red", "moderate", /\bupgraded\b/i, "capped: LR 15"),
+  tagRule("deduplicated-x", "Deduplicated X", "Red", "giveaway", /\bde-?duplicated?\b/i),
+
+  // Orange
+  grouped("policy", tagRule("verifiability", "Verifiability", "Orange", "strong", /\bverifiability\b/i)),
+  grouped("quality", tagRule("readability", "Readability", "Orange", "strong", /\breadability\b/i)),
+  grouped("policy", tagRule("notability", "Notability", "Orange", "moderate", /\bnotability\b/i, "capped: LR 7.6")),
+  tagRule("factual-content", "Factual content", "Orange", "strong", /\bfactual(?:ly)? (?:content|information|details|accuracy|claims|statements|tone|language|description|data|summary|basis)\b/i),
+  grouped("policy", tagRule("secondary-primary-sources", "Secondary/primary sources", "Orange", "strong", /\b(?:secondary|primary|tertiary)(?:\/\w+)? (?:sources?|references?|coverage)\b/i)),
+  grouped("promo", tagRule("subjective-figurative", "Subjective/figurative", "Orange", "strong", /\b(?:subjective|figurative|flowery|puffery|peacock)\b/i)),
+  tagRule("formalized", "Formalized", "Orange", "strong", /\bformali[sz](?:ed|ing)\b/i),
+  tagRule("foundational", "Foundational", "Orange", "strong", /\bfoundational\b/i),
+  tagRule("refreshed-x", "Refreshed X", "Orange", "strong", /\brefreshed\b/i),
+  tagRule("tidied-x", "Tidied X", "Orange", "weak", /\btidied\b/i, 'capped: "tidied up" is common human usage'),
+  tagRule("refactored-x", "Refactored X", "Orange", "moderate", /\brefactor(?:ed|ing)\b/i, "capped: LR 7.5"),
+  tagRule("utilize", "Utilize", "Orange", "strong", /\butili[sz](?:e|es|ed|ing|ation)\b/i),
+  tagRule("delve", "Delve", "Orange", "strong", /\bdelv(?:e|es|ed|ing)\b/i),
+  tagRule("intricate", "Intricate", "Orange", "moderate", /\bintricate\b/i, "capped: LR 15"),
+  tagRule("focused-on", "Focused on X", "Orange", "strong", /\bfocus(?:ed|ing)? on\b/i),
+
+  // Yellow
+  grouped("quality", tagRule("streamlined-x", "Streamlined X", "Yellow", "moderate", /\bstreamlined\b/i)),
+  grouped("quality", tagRule("smoothed-x", "Smoothed X", "Yellow", "moderate", /\bsmoothed\b/i)),
+  tagRule("consolidated-x", "Consolidated X", "Yellow", "moderate", /\bconsolidated\b/i),
+  tagRule("modernized-x", "Modernized X", "Yellow", "moderate", /\bmoderni[sz]ed\b/i),
+  tagRule("optimized-x", "Optimized X", "Yellow", "moderate", /\boptimi[sz]ed\b/i),
+  tagRule("unified-x", "Unified X", "Yellow", "moderate", /\bunified\b/i),
+  tagRule("rebuilt-x", "Rebuilt X", "Yellow", "moderate", /\brebuilt\b/i),
+  grouped("quality", tagRule("enhanced-x", "Enhanced X", "Yellow", "moderate", /\benhanced\b/i)),
+  tagRule("resolved-x", "Resolved X", "Yellow", "moderate", /\bresolved\b/i),
+  tagRule("distinguished-x", "Distinguished X", "Yellow", "moderate", /\bdistinguished\b/i),
+  tagRule("precise-x", "Precise X", "Yellow", "moderate", /\bprecise\b/i),
+  tagRule("emphasized", "Emphasized", "Yellow", "moderate", /\bemphasi[sz]ed\b/i),
+  tagRule("highlight", "Highlight", "Yellow", "moderate", /\bhighlight(?:s|ed|ing)?\b/i),
+  tagRule("reflecting", "Reflecting", "Yellow", "moderate", /\breflect(?:s|ed|ing)?\b/i),
+  tagRule("pivotal", "Pivotal", "Yellow", "moderate", /\bpivotal\b/i),
+  tagRule("showcased", "Showcased", "Yellow", "moderate", /\bshowcas(?:e|es|ed|ing)\b/i),
+  tagRule("foster", "Foster", "Yellow", "moderate", /\bfoster(?:s|ed|ing)?\b/i),
+  tagRule("underscore", "Underscore", "Yellow", "moderate", /\bunderscor(?:e|es|ed|ing)\b/i),
+  tagRule("crucial", "Crucial", "Yellow", "moderate", /\bcrucial\b/i),
+  tagRule("enriching", "Enriching", "Yellow", "moderate", /\benrich(?:ing|ed|es)?\b/i),
+  tagRule("valuable", "Valuable", "Yellow", "moderate", /\bvaluable\b/i),
+  tagRule("insights", "Insights", "Yellow", "moderate", /\binsights?\b/i),
+  tagRule("unique", "Unique", "Yellow", "moderate", /\bunique\b/i),
+  tagRule("robust-x", "Robust X", "Yellow", "moderate", /\brobust (?:citations?|sourcing|sources|references)\b/i),
+  grouped("quality", tagRule("flow", "Flow", "Yellow", "moderate", /\bflow\b/i)),
+  tagRule("maintained-x", "Maintained X", "Yellow", "moderate", /\bmaintained\b/i),
+  grouped("policy", tagRule("significant-coverage", "Significant coverage", "Yellow", "moderate", /\bsignificant coverage\b/i)),
+  tagRule("peer-reviewed", "Peer reviewed X", "Yellow", "moderate", /\bpeer[- ]reviewed\b/i),
+  tagRule("scannability", "Scannability", "Yellow", "moderate", /\bscannab(?:le|ility)\b/i),
+  tagRule("source-based", "Source-based", "Yellow", "moderate", /\bsource-(?:based|backed|supported)\b/i),
+  tagRule("appropriate-x", "Appropriate X", "Yellow", "moderate", /\bappropriate (?:sources?|citations?|references?|categories|links?|tone|wording|section|templates?|formatting|context)\b/i),
+  tagRule("broader-x", "Broader X", "Yellow", "moderate", /\bbroader (?:context|trends?|significance|impact|scope|coverage|historical)\b/i),
+
+  // Green
+  grouped("quality", tagRule("refined-x", "Refined X", "Green", "weak", /\brefined\b/i)),
+  grouped("quality", tagRule("strengthened-x", "Strengthened X", "Green", "weak", /\bstrengthened\b/i)),
+  tagRule("harmonized-x", "Harmonized X", "Green", "weak", /\bharmoni[sz]ed\b/i),
+  tagRule("pruned-x", "Pruned X", "Green", "weak", /\bpruned\b/i),
+  tagRule("softened-x", "Softened X", "Green", "weak", /\bsoftened\b/i),
+  tagRule("normalized-x", "Normalized X", "Green", "weak", /\bnormali[sz]ed\b/i),
+  tagRule("reconciled-x", "Reconciled X", "Green", "weak", /\breconciled\b/i),
+  grouped("quality", tagRule("clarity", "Clarity", "Green", "weak", /\bclarity\b/i)),
+  grouped("quality", tagRule("conciseness", "Conciseness", "Green", "weak", /\bconcis(?:eness|ion)\b/i)),
+  tagRule("retained-x", "Retained X", "Green", "weak", /\bretained\b/i),
+  tagRule("preserved-x", "Preserved X", "Green", "weak", /\bpreserved\b/i),
+  tagRule("brief-x", "Brief X", "Green", "weak", /\bbrief (?:overview|description|summary|mention|history|background|introduction|section|biography)\b/i),
+  tagRule("structured-x", "Structured X", "Green", "weak", /\bstructured (?:sections?|format|layout|content|overview|information|summary|biography)\b/i),
+  tagRule("strictly", "Strictly", "Green", "weak", /\bstrictly\b/i),
+
+  // Blue (not in the legend; treated as weak)
+  tagRule("landscape-figurative", "Landscape (figurative)", "Blue", "weak", /\blandscape of\b/i),
 ];
+
+function grouped(group: string, rule: Rule): Rule {
+  return { ...rule, group };
+}
+
+function tagRule(id: string, tag: string, color: Color, tier: Tier, test: RegExp, note?: string): Rule {
+  return { id, tag, color, tier, description: `"${tag}" tag${note ? ` (${note})` : ""}`, test };
+}
 
 // Anti-signs (indicate a human or automated, non-LLM summary) --------------
 
@@ -447,13 +591,13 @@ export const ANTI_SIGNS: AntiRule[] = [
     id: "profanity",
     tier: "strong",
     description: "Profanity, insults, or doubled exclamation/question marks",
-    test: /(?:fuck(?:s|ed|er|ers|ing|in)?|shit(?:s|ty|ting)?|bullshit|damn(?:ed|it)?|crap(?:py)?|stupid|idiot(?:s|ic)?|moron(?:s|ic)?|dumb(?:ass)?|wtf|retard(?:s|ed)?|bitch(?:es|ing)?|asshole|sucks)|[!?]{2,}/i,
+    test: /\b(?:fuck(?:s|ed|er|ers|ing|in)?|shit(?:s|ty|ting)?|bullshit|damn(?:ed|it)?|crap(?:py)?|stupid|idiot(?:s|ic)?|moron(?:s|ic)?|dumb(?:ass)?|wtf|retard(?:s|ed)?|bitch(?:es|ing)?|asshole|sucks)\b|[!?]{2,}/i,
   },
   {
     id: "shouting",
     tier: "moderate",
     description: "ALL CAPS shouting (three or more capitalised words in a row)",
-    test: /[A-Z]{4,}(?:\s+[A-Z]{3,}){2,}/,
+    test: /\b[A-Z]{4,}(?:\s+[A-Z]{3,}){2,}\b/,
   },
   {
     id: "talk-reference",
