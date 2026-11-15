@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { AutoEdits } from "./autoedits.ts";
 import { analyze } from "./heuristics/index.ts";
 import { escapeMarkdown, Webhook, type Message } from "./discord.ts";
-import { Model, normalize } from "./model.ts";
+import { lengthAdjusted, Model, normalize, wordCount } from "./model.ts";
 import { encodeTitle, Wiki } from "./wiki.ts";
 
 const ROOT = join(import.meta.dirname, "..");
@@ -35,6 +35,9 @@ const config = {
   backfillMinutes: Number(env("BACKFILL_MINUTES", "0")),
   modelPath: join(ROOT, env("MODEL_PATH", "model.onnx")),
   dryRun: /^(1|true|yes)$/i.test(process.env.DRY_RUN ?? ""),
+  /** Short-summary penalty: each word below MIN_WORDS subtracts LENGTH_PENALTY from the log-odds. */
+  minWords: Number(env("MIN_WORDS", "10")),
+  perWordPenalty: Number(env("LENGTH_PENALTY", "1")),
   /** Skip summaries the heuristics call obviously human (HEURISTICS=0 to disable). */
   useHeuristics: !/^(0|false|no)$/i.test(process.env.HEURISTICS ?? ""),
 };
@@ -63,6 +66,14 @@ interface RecentChange {
   timestamp: string;
   tags?: string[];
   minor?: boolean;
+}
+
+interface Scored {
+  /** Model output. */
+  raw: number;
+  /** After the short-summary penalty. */
+  score: number;
+  words: number;
 }
 
 interface UserInfo {
@@ -107,7 +118,8 @@ function formatTags(tags: string[]) {
     .slice(0, 1024);
 }
 
-function buildMessage(wiki: Wiki, rc: RecentChange, score: number, user: UserInfo | undefined): Message {
+function buildMessage(wiki: Wiki, rc: RecentChange, scored: Scored, user: UserInfo | undefined): Message {
+  const { score } = scored;
   const name = rc.user ?? "(hidden)";
   const diff =
     rc.type === "new" ? wiki.url(rc.title, { oldid: rc.revid }) : wiki.url(rc.title, { diff: rc.revid, oldid: rc.old_revid });
@@ -139,7 +151,14 @@ function buildMessage(wiki: Wiki, rc: RecentChange, score: number, user: UserInf
         color: score >= 0.97 ? 0xd32f2f : 0xf57c00,
         timestamp: rc.timestamp,
         fields: [
-          { name: "AI score", value: score.toFixed(3), inline: true },
+          {
+            name: "AI score",
+            value:
+              score.toFixed(3) +
+              (scored.raw !== score ? `
+(model ${scored.raw.toFixed(3)}, ${scored.words} words)` : ""),
+            inline: true,
+          },
           {
             name: "Size",
             value: `${delta > 0 ? "+" : ""}${delta.toLocaleString("en-US")} bytes (now ${rc.newlen.toLocaleString("en-US")})${rc.minor ? " · minor" : ""}`,
@@ -245,14 +264,20 @@ async function main() {
 
       const scores = await model.score(candidates.map((rc) => rc.comment!));
       stats.scored += candidates.length;
-      const hits = candidates.map((rc, i) => ({ rc, score: scores[i] })).filter((h) => h.score > config.threshold);
+      const hits = candidates
+        .map((rc, i) => {
+          const words = wordCount(rc.comment!);
+          const score = lengthAdjusted(scores[i], words, config.minWords, config.perWordPenalty);
+          return { rc, raw: scores[i], score, words };
+        })
+        .filter((h) => h.score > config.threshold);
 
       if (hits.length) {
         const users = await fetchUsers(wiki, [...new Set(hits.map((h) => h.rc.user!).filter(Boolean))]);
-        for (const { rc, score } of hits) {
+        for (const { rc, raw, score, words } of hits) {
           stats.flagged++;
           console.log(`[flag] ${score.toFixed(3)} ${rc.title} by ${rc.user}: ${rc.comment}`);
-          const msg = buildMessage(wiki, rc, score, users.get(rc.user!));
+          const msg = buildMessage(wiki, rc, { raw, score, words }, users.get(rc.user!));
           if (config.dryRun) console.log(JSON.stringify(msg));
           else webhook.send(msg).catch((e) => console.error("Webhook error:", e.message));
         }

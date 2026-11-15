@@ -10,6 +10,27 @@ export function normalize(summary: string) {
   return summary.replace(AUTOCOMMENT, "").trim();
 }
 
+export function wordCount(summary: string) {
+  const s = normalize(summary);
+  return s ? s.split(/\s+/).length : 0;
+}
+
+/**
+ * Down-weight short summaries. AI summaries are usually wordy (median 21
+ * words; only 10% have fewer than 10), while short ones like "Added detail and
+ * citation." are mostly human even when they use AI-ish phrasing. Each word
+ * below `minWords` subtracts `perWord` from the score's log-odds.
+ *
+ * Held-out test split, flagging at > 0.9 (minWords 10, perWord 1):
+ * recall 0.921 → 0.897, false-positive rate 0.66% → 0.08%.
+ */
+export function lengthAdjusted(score: number, words: number, minWords = 10, perWord = 1) {
+  const penalty = perWord * Math.max(0, minWords - words);
+  if (!penalty) return score;
+  const p = Math.min(Math.max(score, 1e-7), 1 - 1e-7);
+  return 1 / (1 + Math.exp(-(Math.log(p / (1 - p)) - penalty)));
+}
+
 export class Model {
   private readonly session: ort.InferenceSession;
 

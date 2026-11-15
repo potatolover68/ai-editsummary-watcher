@@ -55,6 +55,7 @@ npm start
 | `BACKFILL_MINUTES` | also process this many minutes before startup (default `0`) |
 | `MODEL_PATH` | default `model.onnx` |
 | `DRY_RUN=1` | print messages instead of posting them |
+| `MIN_WORDS` / `LENGTH_PENALTY` | short-summary penalty, see below (default `10` / `1`; `MIN_WORDS=0` disables) |
 | `HEURISTICS=0` | don't skip summaries the heuristics call obviously human |
 
 `npm start` loads `.env` if it exists. Plain environment variables work too.
@@ -76,10 +77,30 @@ npm start
 
 API requests send `maxlag=5` and back off on HTTP 429/5xx.
 
+## Short-summary penalty
+
+AI summaries are usually wordy: in the training data the median is 21
+words, and only 10% have fewer than 10. Short summaries such as "Added
+detail and citation." or "revised tone for neutrality" use the same phrasing
+but are almost always human. The model alone scores those 0.98–0.99.
+
+So for each word below `MIN_WORDS`, the bot subtracts `LENGTH_PENALTY` from
+the score's log-odds. Here is the effect on the model's held-out test split
+when flagging at > 0.9:
+
+| | recall | false-positive rate |
+|---|---|---|
+| model alone | 0.921 | 0.66% |
+| with penalty (10 words, 1 per word) | 0.897 | 0.08% |
+
+In a 60-minute dry run on en.wikipedia, flags dropped from 45 to 26. When the
+penalty changes a score, the post shows both numbers (e.g. `0.951 (model 0.992,
+7 words)`).
+
 ## Expect false positives
 
-In a 60-minute dry run on en.wikipedia (Nov 2026), about 30 edits scored
-above 0.9. Most were good-faith, full-sentence summaries from newer editors,
+Even with the penalty, a 60-minute dry run on en.wikipedia (Nov 2026) flagged
+26 edits. Many were good-faith, full-sentence summaries from newer editors,
 such as "Added a sentence to the History section and cited". The model was
 trained mostly on summaries by experienced editors, so it under-represents
 that style. Raise `THRESHOLD` (e.g. to `0.97`) if the channel gets too noisy.
