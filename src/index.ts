@@ -115,6 +115,7 @@ function buildMessage(wiki: Wiki, rc: RecentChange, score: number, user: UserInf
     user: wiki.url(`User:${name}`),
     talk: wiki.url(`User talk:${name}`),
     contribs: wiki.url(`Special:Contributions/${name}`),
+    history: wiki.url(`Special:History/${rc.title}`),
   };
   const delta = rc.newlen - (rc.oldlen ?? 0);
   const t = unix(rc.timestamp);
@@ -161,6 +162,7 @@ function buildMessage(wiki: Wiki, rc: RecentChange, score: number, user: UserInf
       { label: "User page", url: links.user },
       { label: "Talk", url: links.talk },
       { label: "Contribs", url: links.contribs },
+      { label: "History", url: links.history },
     ],
   };
 }
